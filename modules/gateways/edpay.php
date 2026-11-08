@@ -97,23 +97,27 @@ function edpay_link(array $params): string
     $returnUrl = "{$systemUrl}/viewinvoice.php?id={$invoiceId}";
     $cancelUrl = "{$systemUrl}/clientarea.php?action=invoices";
 
-    // Build Hosted Checkout creation payload
+    // Build Unified Payment payload
     $payload = [
-        'title' => "Fatura WHMCS #{$invoiceId}",
-        'description' => $description,
-        'amount' => (int) round($amount * 100), // In centavos
+        'amount_minor' => (int) round($amount * 100),
         'currency' => $currency,
+        'reference' => "WHMCS-{$invoiceId}",
+        'description' => $description,
+        'customer' => [
+            'name' => trim("{$firstname} {$lastname}"),
+            'email' => $email,
+        ],
         'metadata' => [
             'whmcs_invoice_id' => $invoiceId,
             'client_email' => $email,
             'client_name' => trim("{$firstname} {$lastname}"),
         ],
-        'success_url' => $returnUrl,
+        'return_url' => $returnUrl,
         'cancel_url' => $cancelUrl,
     ];
 
-    // Request Checkout link from EDPay Server-to-Server
-    $ch = curl_init("{$baseUrl}/v1/core/payment-links");
+    // Request Payment session from EDPay Server-to-Server
+    $ch = curl_init("{$baseUrl}/v1/payments");
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
@@ -140,7 +144,7 @@ function edpay_link(array $params): string
     }
 
     $data = json_decode((string) $rawResponse, true);
-    $checkoutUrl = $data['data']['hosted_url'] ?? $data['data']['checkout_url'] ?? null;
+    $checkoutUrl = $data['payment_url'] ?? $data['checkout_url'] ?? $data['data']['hosted_url'] ?? null;
 
     if (!$checkoutUrl) {
         return '<div class="alert alert-warning" style="margin: 10px 0; padding: 12px; border-radius: 6px;">' .
