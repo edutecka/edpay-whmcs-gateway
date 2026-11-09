@@ -1,81 +1,74 @@
-# Módulo de Pagamentos EDPay para WHMCS
+# EDPay for WHMCS — Development Preview
 
-[![Licença: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Versão WHMCS](https://img.shields.io/badge/WHMCS-7.x%20|%208.x-orange.svg)](https://whmcs.com)
-[![Multi-Gateway](https://img.shields.io/badge/EDPay-Multi--Gateway-0051FA.svg)](https://edpay.co.mz)
+This repository contains an EDPay payment gateway integration for WHMCS. Use it only in a sandbox or isolated test installation until you have completed integration, security, and reconciliation testing for your WHMCS version.
 
-Integre a plataforma **EDPay** ao seu sistema de faturação e hosting **WHMCS**, permitindo que os seus clientes em Moçambique liquidem faturas via **Carteiras Móveis (M-Pesa, e-Mola)**, **Cartões Visa / Mastercard**, e **Referências Bancárias** em Meticais (MZN) com confirmação instantânea via webhook assinado (HMAC-SHA256).
+The module adds EDPay as an invoice payment method. A client selects the gateway on an invoice, the server creates an EDPay payment request, and a signed callback records a confirmed payment against the invoice.
 
----
+## Requirements
 
-## 🚀 Funcionalidades
+- WHMCS 7.x or 8.x
+- PHP with `curl`, `json`, and `hash`
+- An EDPay merchant account with sandbox API keys
+- HTTPS for the WHMCS client area and callback endpoint
 
-- **Checkout Multi-Gateway**: O cliente escolhe livremente o canal de pagamento (M-Pesa, e-Mola, Cartão de Débito/Crédito ou Referência Bancária).
-- **Liquidação Automática de Faturas**: Webhook em tempo real dá baixa na fatura no WHMCS logo que o pagamento é autorizado.
-- **Assinatura HMAC-SHA256**: Validação rigorosa do header `X-EDPay-Signature` para prevenir requisições forjadas.
-- **Suporte a Sandbox & Live**: Alterne entre chaves de teste (`pk_test_...`) e produção (`pk_live_...`) com um clique.
-- **Tarifa Transparente**: Taxa plana de 6% em MZN com reconciliação contábil automática.
-
----
-
-## 📦 Estrutura de Arquivos
-
-```
-edpay-whmcs-gateway/
-├── modules/
-│   └── gateways/
-│       ├── edpay.php              # Definição e lógica do gateway WHMCS
-│       └── callback/
-│           └── edpay.php          # Listener de webhooks com verificação HMAC
-├── README.md
-└── LICENSE
-```
-
----
-
-## 🛠️ Instalação Passo a Passo
-
-### 1. Copiar Arquivos para o Servidor WHMCS
-Copie a pasta `modules/` deste repositório para o diretório raiz da sua instalação WHMCS:
+## Install from source
 
 ```bash
-cp -r modules/ /var/www/whmcs/modules/
+git clone https://github.com/edutecka/edpay-whmcs-gateway.git
 ```
 
-### 2. Ativar o Gateway no Painel WHMCS
-1. Inicie sessão no painel administrativo do WHMCS.
-2. Navegue até **Setup (Configurações) > Payments (Pagamentos) > Payment Gateways**.
-3. Na aba **All Payment Gateways**, localize **EDPay Multi-Gateway** e clique em **Activate**.
+Copy `modules/gateways/edpay.php` and `modules/gateways/callback/edpay.php` to the matching directories in the WHMCS installation. Then activate **EDPay Multi-Gateway** in **System Settings → Payment Gateways**.
 
-### 3. Configurar Parâmetros de API
-Preencha os campos com as credenciais obtidas no painel da EDPay (**Desenvolvedores > Chaves de API**):
-- **Display Name**: `EDPay Multi-Gateway (M-Pesa, e-Mola, Cartões)`
-- **Chave Pública**: `pk_live_...` (ou `pk_test_...` para testes)
-- **Chave Privada**: `sk_live_...` (ou `sk_test_...`)
-- **Segredo do Webhook**: `whsec_...`
-- **Modo Sandbox de Testes**: Marque caso esteja usando chaves de teste.
+## Configure and run a test payment
 
-Clique em **Save Changes**.
+1. Select the sandbox environment and enter a sandbox public key, private key, and webhook secret in the gateway configuration.
+2. Enable the gateway for a test client and invoice.
+3. Open the invoice payment page as the test client and select EDPay.
+4. Complete the hosted checkout and confirm the invoice is updated only after a verified callback.
 
-### 4. Configurar Webhook no Painel EDPay
-1. Acesse o painel EDPay em **Desenvolvedores > Webhooks**.
-2. Clique em **Criar Webhook** e insira a URL de callback do seu WHMCS:
-   ```
-   https://seu-whmcs.co.mz/modules/gateways/callback/edpay.php
-   ```
-3. Selecione os eventos `payment.succeeded` e `payment.failed`.
-4. Copie o segredo `whsec_...` gerado e guarde no WHMCS.
+Keep the private key and webhook secret out of source control and browser code. The gateway sends the partner key headers from the server and uses the EDPay payment endpoint.
 
----
+## Webhook setup
 
-## 🔒 Segurança e Melhores Práticas
+Register the callback in the EDPay dashboard under **Developers → Webhooks**:
 
-- A chave privada (`sk_live_...`) e o segredo do webhook (`whsec_...`) nunca devem ser expostos publicamente.
-- O script `callback/edpay.php` valida a assinatura criptográfica antes de chamar `addInvoicePayment()`.
-- O WHMCS registra todas as notificações em **Billing > Gateway Log**.
+```text
+https://billing.example/modules/gateways/callback/edpay.php
+```
 
----
+The callback validates `X-EDPay-Signature` with HMAC-SHA256, checks the transaction ID to avoid duplicate invoice credits, and records successful payments in WHMCS. Test valid, invalid, and repeated event deliveries before enabling the gateway outside a sandbox.
 
-## 📄 Licença
+## Operations and security
 
-Distribuído sob licença MIT. Consulte `LICENSE` para mais detalhes.
+- Never expose `sk_test_...`, `sk_live_...`, or `whsec_...` in public code, logs, or browser pages.
+- Use webhook verification as the source of truth; do not settle an invoice from a browser return alone.
+- Review WHMCS gateway logs and reconcile invoice IDs with EDPay payment references.
+- The repository is a development preview; validate the callback and API configuration against your target WHMCS version before live use.
+
+## Documentation
+
+- [WHMCS integration guide](https://docs-pay.edutecka.com/plugins/whmcs/)
+- [API payments reference](https://docs-pay.edutecka.com/api/payments/)
+- [Webhook integration guide](https://docs-pay.edutecka.com/api/webhooks/)
+- [SDK installation and integration guide](https://docs-pay.edutecka.com/sdks/)
+
+## Official SDKs
+
+- [JavaScript / TypeScript](https://github.com/edutecka/edpay-javascript-sdk)
+- [Python](https://github.com/edutecka/edpay-python-sdk)
+- [PHP](https://github.com/edutecka/edpay-php-sdk)
+- [Java](https://github.com/edutecka/edpay-java-sdk)
+- [.NET](https://github.com/edutecka/edpay-dot-net-sdk)
+
+## Other official plugins and platforms
+
+- [WooCommerce (WordPress)](https://github.com/edutecka/edpay-woocommerce-plugin)
+- [Shopify](https://github.com/edutecka/edpay-shopify-app)
+- [Magento / Adobe Commerce](https://github.com/edutecka/edpay-magento2-module)
+- [PrestaShop](https://github.com/edutecka/edpay-prestashop-module)
+- [OpenCart](https://github.com/edutecka/edpay-opencart-extension)
+- [WHMCS](https://github.com/edutecka/edpay-whmcs-gateway)
+
+## License
+
+MIT. See [LICENSE](LICENSE).
