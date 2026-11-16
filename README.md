@@ -2,7 +2,7 @@
 
 This repository contains an EDPay payment gateway integration for WHMCS. Use it only in a sandbox or isolated test installation until you have completed integration, security, and reconciliation testing for your WHMCS version.
 
-The module adds EDPay as an invoice payment method. A client selects the gateway on an invoice, the server creates an EDPay payment request, and a signed callback records a confirmed payment against the invoice.
+The module adds EDPay as an invoice payment method. A client selects the gateway on an invoice, the server creates an EDPay payment request, and the callback records a confirmed payment against the invoice. The callback requires a configured webhook secret and rejects unsigned or unverifiable events.
 
 ## Requirements
 
@@ -21,12 +21,12 @@ Copy `modules/gateways/edpay.php` and `modules/gateways/callback/edpay.php` to t
 
 ## Configure and run a test payment
 
-1. Select the sandbox environment and enter a sandbox public key, private key, and webhook secret in the gateway configuration.
+1. Select the sandbox environment and enter both sandbox API keys: pair `pk_test_...` with `sk_test_...`, plus the webhook secret. The gateway checks that both keys are present, well formed, and from the same environment before creating a payment.
 2. Enable the gateway for a test client and invoice.
 3. Open the invoice payment page as the test client and select EDPay.
 4. Complete the hosted checkout and confirm the invoice is updated only after a verified callback.
 
-Keep the private key and webhook secret out of source control and browser code. The gateway sends the partner key headers from the server and uses the EDPay payment endpoint.
+Keep the private key and webhook secret out of source control and browser code. The gateway uses `POST /v1/payment-links` then `POST /v1/checkout/sessions`, with stable invoice-based idempotency keys, and builds the hosted URL from the token at `https://pay.edutecka.com/pay?token=...&pk=...`.
 
 ## Webhook setup
 
@@ -36,7 +36,7 @@ Register the callback in the EDPay dashboard under **Developers → Webhooks**:
 https://billing.example/modules/gateways/callback/edpay.php
 ```
 
-The callback validates `X-EDPay-Signature` with HMAC-SHA256, checks the transaction ID to avoid duplicate invoice credits, and records successful payments in WHMCS. Test valid, invalid, and repeated event deliveries before enabling the gateway outside a sandbox.
+The gateway stores a durable payment-link-to-invoice mapping with expected amount and currency. It processes only `payment.succeeded` with `status=succeeded` and matching `data.payment_link_id`, amount, and currency; duplicate payment IDs and already-processed links are rejected. This requires an API version that emits `data.payment_link_id`. The callback verifies `Payment-Signature` and rejects invalid signatures or timestamps outside the configurable 300-second default window.
 
 ## Operations and security
 

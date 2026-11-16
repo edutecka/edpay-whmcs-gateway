@@ -1,15 +1,16 @@
-# Roadmap & Plano de Arquitetura - EDPay WHMCS Gateway
+# Roadmap and Architecture Plan - EDPay WHMCS Gateway
 
-## Fases de Desenvolvimento
+## Development Phases
 
-### Fase 1: Arquitetura & Configuração do Portal (Concluído)
-- [x] Definição de metadados em `modules/gateways/edpay.php` (`edpay_MetaData()`, `edpay_config()`).
-- [x] Suporte para configuração de Chave Pública, Chave Privada, Segredo do Webhook e Modo Sandbox/Produção.
+### Phase 1: Architecture and Portal Configuration (Complete)
+- [x] Define metadata in `modules/gateways/edpay.php` (`edpay_MetaData()`, `edpay_config()`).
+- [x] Support configuration of the public key, private key, webhook secret, and API base URL.
+- [ ] Connect the Sandbox Mode setting to API environment selection; the setting is currently inactive.
 
-### Fase 2: Link de Pagamento & Callback de IPN (Em Desenvolvimento)
-- [ ] Geração de checkout alojado em `edpay_link()`.
-- [ ] Callback listener em `modules/gateways/callback/edpay.php` com validação de invoice ID, trans_id e fee.
+### Phase 2: Payment Link and IPN Callback (In Progress)
+- [ ] Generate hosted checkout in `edpay_link()`.
+- [ ] Add a callback listener in `modules/gateways/callback/edpay.php` with invoice ID, transaction ID, and fee validation.
 
-### Fase 3: Certificação WHMCS Marketplace
-- [ ] Testes automatizados em WHMCS 8.8, 8.9 e 8.10.
-- [ ] Publicação no WHMCS Marketplace.
+### Phase 3: WHMCS Marketplace Certification
+- [ ] Add automated tests for WHMCS 8.8, 8.9, and 8.10.
+- [ ] Publish to the WHMCS Marketplace.

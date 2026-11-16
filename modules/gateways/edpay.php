@@ -2,8 +2,7 @@
 /**
  * EDPay Payment Gateway Module for WHMCS
  *
- * Process multi-gateway payments in Mozambique (Meticais - MZN)
- * Supports Mobile Money (M-Pesa, e-Mola), Cards, and Bank References.
+ * Process payments through the methods available from EDPay.
  *
  * @copyright 2026 EDPay
  * @license   MIT
@@ -20,7 +19,7 @@ if (!defined("WHMCS")) {
 function edpay_MetaData(): array
 {
     return [
-        'DisplayName' => 'EDPay Payment Gateway (MZN Multi-Gateway)',
+        'DisplayName' => 'EDPay Payment Gateway',
         'APIVersion' => '1.1',
         'DisableLocalCreditCardInput' => true,
         'TokenisedStorage' => false,
@@ -35,40 +34,47 @@ function edpay_config(): array
     return [
         'FriendlyName' => [
             'Type' => 'System',
-            'Value' => 'EDPay Multi-Gateway (M-Pesa, e-Mola, Cartões)',
+            'Value' => 'EDPay Payment Gateway',
         ],
         'publicKey' => [
-            'FriendlyName' => 'Chave Pública (Public Key)',
+            'FriendlyName' => 'Public Key',
             'Type' => 'text',
             'Size' => '64',
             'Default' => '',
-            'Description' => 'pk_live_... ou pk_test_... obtida no Painel EDPay em Desenvolvedores > Chaves API.',
+            'Description' => 'Required with its matching private key: use pk_test_... with sk_test_..., or pk_live_... with sk_live_....',
         ],
         'privateKey' => [
-            'FriendlyName' => 'Chave Privada (Private Key)',
+            'FriendlyName' => 'Private Key',
             'Type' => 'password',
             'Size' => '64',
             'Default' => '',
-            'Description' => 'sk_live_... ou sk_test_... (mantida em segurança absoluta no servidor).',
+            'Description' => 'Required with its matching public key. Keep it on the server.',
         ],
         'webhookSecret' => [
-            'FriendlyName' => 'Segredo do Webhook (Webhook Secret)',
+            'FriendlyName' => 'Webhook Secret',
             'Type' => 'password',
             'Size' => '64',
             'Default' => '',
-            'Description' => 'whsec_... configurado no Painel EDPay para verificação da assinatura HMAC SHA-256.',
+            'Description' => 'Enter the webhook signing secret (whsec_...) configured in EDPay for HMAC-SHA256 verification.',
+        ],
+        'webhookToleranceSeconds' => [
+            'FriendlyName' => 'Webhook Timestamp Tolerance (seconds)',
+            'Type' => 'text',
+            'Size' => '6',
+            'Default' => '300',
+            'Description' => 'Maximum accepted timestamp age or clock skew for Payment-Signature (default: 300 seconds).',
         ],
         'testMode' => [
-            'FriendlyName' => 'Modo Sandbox de Testes',
+            'FriendlyName' => 'Sandbox Mode (Inactive)',
             'Type' => 'yesno',
-            'Description' => 'Marque para usar o ambiente Sandbox de simulação da EDPay.',
+            'Description' => 'This setting is currently inactive and does not select the API environment. Use API Base URL to choose the endpoint.',
         ],
         'apiBaseUrl' => [
-            'FriendlyName' => 'URL Base da API (Opcional)',
+            'FriendlyName' => 'API Base URL (Optional)',
             'Type' => 'text',
             'Size' => '80',
             'Default' => 'https://api-pay.edutecka.com',
-            'Description' => 'URL da infraestrutura da API EDPay (padrão: https://api-pay.edutecka.com).',
+            'Description' => 'Base URL for the EDPay API (default: https://api-pay.edutecka.com).',
         ],
     ];
 }
@@ -78,83 +84,83 @@ function edpay_config(): array
  */
 function edpay_link(array $params): string
 {
+    $publicKey = trim((string) ($params['publicKey'] ?? ''));
+    $privateKey = trim((string) ($params['privateKey'] ?? ''));
+    $publicMode = preg_match('/^pk_(test|live)_[a-fA-F0-9]{24}$/D', $publicKey, $publicMatch) ? $publicMatch[1] : null;
+    $privateMode = preg_match('/^sk_(test|live)_[a-fA-F0-9]{64}$/D', $privateKey, $privateMatch) ? $privateMatch[1] : null;
+    if ($publicMode === null || $privateMode === null || $publicMode !== $privateMode) {
+        return '<div class="alert alert-danger" style="margin: 10px 0; padding: 12px; border-radius: 6px;">Configure a valid EDPay public key and private key from the same environment.</div>';
+    }
+
+    $schema = \WHMCS\Database\Capsule::schema();
+    if (!$schema->hasTable('mod_edpay_order_links')) {
+        $schema->create('mod_edpay_order_links', function ($table) {
+            $table->string('payment_link_id', 100)->primary();
+            $table->unsignedInteger('invoice_id')->index();
+            $table->unsignedBigInteger('amount_minor');
+            $table->string('currency', 3);
+            $table->string('payment_id', 100)->nullable()->unique();
+            $table->timestamps();
+        });
+    }
     $invoiceId = (string) $params['invoiceid'];
-    $description = (string) ($params['description'] ?? "Fatura #{$invoiceId}");
+    $description = (string) ($params['description'] ?? "Invoice #{$invoiceId}");
     $amount = (float) $params['amount'];
     $currency = (string) ($params['currency'] ?? 'MZN');
 
-    $publicKey = trim((string) ($params['publicKey'] ?? ''));
-    $privateKey = trim((string) ($params['privateKey'] ?? ''));
     $baseUrl = rtrim((string) ($params['apiBaseUrl'] ?? 'https://api-pay.edutecka.com'), '/');
     $systemUrl = rtrim((string) ($params['systemurl'] ?? ''), '/');
 
-    // Customer details
-    $firstname = (string) ($params['clientdetails']['firstname'] ?? '');
-    $lastname = (string) ($params['clientdetails']['lastname'] ?? '');
-    $email = (string) ($params['clientdetails']['email'] ?? '');
-    $phonenumber = (string) ($params['clientdetails']['phonenumber'] ?? '');
-
-    $returnUrl = "{$systemUrl}/viewinvoice.php?id={$invoiceId}";
-    $cancelUrl = "{$systemUrl}/clientarea.php?action=invoices";
-
-    // Build Unified Payment payload
-    $payload = [
+    $headers = [
+        'Content-Type: application/json',
+        "X-EDPay-Public-Key: {$publicKey}",
+        "X-EDPay-Private-Key: {$privateKey}",
+    ];
+    $request = function (string $url, array $body, string $key) use ($headers): array {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20,
+            CURLOPT_HTTPHEADER => array_merge($headers, ["Idempotency-Key: {$key}"]),
+            CURLOPT_POSTFIELDS => json_encode($body),
+        ]);
+        $response = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+        return [$code, json_decode((string) $response, true), $error];
+    };
+    $prefix = 'whmcs-invoice-' . $invoiceId;
+    [$httpCode, $link, $curlError] = $request("{$baseUrl}/v1/payment-links", [
         'amount_minor' => (int) round($amount * 100),
         'currency' => $currency,
-        'reference' => "WHMCS-{$invoiceId}",
-        'description' => $description,
-        'customer' => [
-            'name' => trim("{$firstname} {$lastname}"),
-            'email' => $email,
-        ],
-        'metadata' => [
-            'whmcs_invoice_id' => $invoiceId,
-            'client_email' => $email,
-            'client_name' => trim("{$firstname} {$lastname}"),
-        ],
-        'return_url' => $returnUrl,
-        'cancel_url' => $cancelUrl,
-    ];
-
-    // Request Payment session from EDPay Server-to-Server
-    $ch = curl_init("{$baseUrl}/v1/payments");
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 20,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            "X-EDPay-Public-Key: {$publicKey}",
-            "X-EDPay-Private-Key: {$privateKey}",
-            "Idempotency-Key: whmcs-inv-{$invoiceId}-" . time(),
-        ],
-        CURLOPT_POSTFIELDS => json_encode($payload),
-    ]);
-
-    $rawResponse = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    if ($curlError || $httpCode < 200 || $httpCode >= 300) {
-        return '<div class="alert alert-danger" style="margin: 10px 0; padding: 12px; border-radius: 6px;">' .
-            '<strong>Erro ao conectar à EDPay:</strong> Não foi possível gerar a sessão de pagamento no momento. ' .
-            'Por favor contacte o suporte. (HTTP ' . htmlspecialchars((string) $httpCode) . ')' .
-            '</div>';
+    ], "{$prefix}-link-create");
+    $linkId = $link['data']['id'] ?? null;
+    if (!$curlError && $httpCode >= 200 && $httpCode < 300 && is_string($linkId) && $linkId !== '') {
+        \WHMCS\Database\Capsule::table('mod_edpay_order_links')->updateOrInsert(
+            ['payment_link_id' => $linkId],
+            ['invoice_id' => (int) $invoiceId, 'amount_minor' => (int) round($amount * 100), 'currency' => $currency, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]
+        );
+        [$sessionCode, $session, $sessionError] = $request("{$baseUrl}/v1/checkout/sessions", [
+            'payment_link_id' => $linkId,
+        ], "{$prefix}-checkout-session");
+        $token = $session['data']['token'] ?? null;
+        if (!$sessionError && $sessionCode >= 200 && $sessionCode < 300 && is_string($token) && $token !== '') {
+            $checkoutUrl = 'https://pay.edutecka.com/pay?' . http_build_query([
+                'token' => $token, 'pk' => $publicKey,
+            ], '', '&', PHP_QUERY_RFC3986);
+        }
     }
 
-    $data = json_decode((string) $rawResponse, true);
-    $checkoutUrl = $data['payment_url'] ?? $data['checkout_url'] ?? $data['data']['hosted_url'] ?? null;
-
-    if (!$checkoutUrl) {
-        return '<div class="alert alert-warning" style="margin: 10px 0; padding: 12px; border-radius: 6px;">' .
-            'Sessão criada mas a URL de checkout não foi retornada. Verifique as configurações de chave no WHMCS.' .
+    if (empty($checkoutUrl)) {
+        return '<div class="alert alert-danger" style="margin: 10px 0; padding: 12px; border-radius: 6px;">' .
+            '<strong>Unable to connect to EDPay:</strong> The payment session could not be created. ' .
+            'Please contact support. (HTTP ' . htmlspecialchars((string) $httpCode) . ')' .
             '</div>';
     }
 
     return '<form method="GET" action="' . htmlspecialchars($checkoutUrl) . '">' .
         '<button type="submit" class="btn btn-primary btn-block btn-lg" style="background-color: #0051FA; border-color: #0051FA; font-weight: 600; padding: 12px 24px; border-radius: 8px; color: #fff;">' .
-        'Pagar com EDPay (M-Pesa, e-Mola, Cartões)' .
+        'Pay with EDPay' .
         '</button>' .
         '</form>';
 }
