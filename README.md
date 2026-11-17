@@ -1,5 +1,7 @@
 # EDPay for WHMCS — Development Preview
 
+**Version:** 1.6.0
+
 This repository contains an EDPay payment gateway integration for WHMCS. Use it only in a sandbox or isolated test installation until you have completed integration, security, and reconciliation testing for your WHMCS version.
 
 The module adds EDPay as an invoice payment method. A client selects the gateway on an invoice, the server creates an EDPay payment request, and the callback records a confirmed payment against the invoice. The callback requires a configured webhook secret and rejects unsigned or unverifiable events.
