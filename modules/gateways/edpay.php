@@ -64,11 +64,6 @@ function edpay_config(): array
             'Default' => '300',
             'Description' => 'Maximum accepted timestamp age or clock skew for Payment-Signature (default: 300 seconds).',
         ],
-        'testMode' => [
-            'FriendlyName' => 'Sandbox Mode (Inactive)',
-            'Type' => 'yesno',
-            'Description' => 'This setting is currently inactive and does not select the API environment. Use API Base URL to choose the endpoint.',
-        ],
         'apiBaseUrl' => [
             'FriendlyName' => 'API Base URL (Optional)',
             'Type' => 'text',

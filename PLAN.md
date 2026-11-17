@@ -5,7 +5,7 @@
 ### Phase 1: Architecture and Portal Configuration (Complete)
 - [x] Define metadata in `modules/gateways/edpay.php` (`edpay_MetaData()`, `edpay_config()`).
 - [x] Support configuration of the public key, private key, webhook secret, and API base URL.
-- [ ] Connect the Sandbox Mode setting to API environment selection; the setting is currently inactive.
+- [x] Remove the inactive Sandbox Mode setting; matching API key prefixes select test or live access on the same API host.
 
 ### Phase 2: Payment Parent, Hosted Checkout, and IPN Callback (In Progress)
 - [ ] Generate hosted checkout in `edpay_link()`.

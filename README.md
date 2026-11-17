@@ -23,7 +23,7 @@ Copy `modules/gateways/edpay.php` and `modules/gateways/callback/edpay.php` to t
 
 ## Configure and run a test payment
 
-1. Select the sandbox environment and enter both sandbox API keys: pair `pk_test_...` with `sk_test_...`, plus the webhook secret. The gateway checks that both keys are present, well formed, and from the same environment before creating a payment.
+1. For testing, enter a matching pk_test_... / sk_test_... key pair and webhook secret. For production, use a matching pk_live_... / sk_live_... pair. The key prefixes determine the mode, and the gateway validates that both keys match.
 2. Enable the gateway for a test client and invoice.
 3. Open the invoice payment page as the test client and select EDPay.
 4. Complete the hosted checkout and confirm the invoice is updated only after a verified callback.
