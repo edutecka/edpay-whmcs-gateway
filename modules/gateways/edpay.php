@@ -80,7 +80,7 @@ function edpay_config(): array
 }
 
 /**
- * Payment link generation
+ * Create payment and hosted checkout
  */
 function edpay_link(array $params): string
 {
@@ -93,9 +93,9 @@ function edpay_link(array $params): string
     }
 
     $schema = \WHMCS\Database\Capsule::schema();
-    if (!$schema->hasTable('mod_edpay_order_links')) {
-        $schema->create('mod_edpay_order_links', function ($table) {
-            $table->string('payment_link_id', 100)->primary();
+    if (!$schema->hasTable('mod_edpay_order_payments')) {
+        $schema->create('mod_edpay_order_payments', function ($table) {
+            $table->string('reference', 100)->primary();
             $table->unsignedInteger('invoice_id')->index();
             $table->unsignedBigInteger('amount_minor');
             $table->string('currency', 3);
@@ -121,7 +121,7 @@ function edpay_link(array $params): string
         curl_setopt_array($ch, [
             CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20,
             CURLOPT_HTTPHEADER => array_merge($headers, ["Idempotency-Key: {$key}"]),
-            CURLOPT_POSTFIELDS => json_encode($body),
+            CURLOPT_POSTFIELDS => ($body === [] ? '{}' : json_encode($body)),
         ]);
         $response = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -130,20 +130,20 @@ function edpay_link(array $params): string
         return [$code, json_decode((string) $response, true), $error];
     };
     $prefix = 'whmcs-invoice-' . $invoiceId;
-    [$httpCode, $link, $curlError] = $request("{$baseUrl}/v1/payment-links", [
+    [$httpCode, $payment, $curlError] = $request("{$baseUrl}/v1/payments", [
         'amount_minor' => (int) round($amount * 100),
         'currency' => $currency,
-    ], "{$prefix}-link-create");
-    $linkId = $link['data']['id'] ?? null;
-    if (!$curlError && $httpCode >= 200 && $httpCode < 300 && is_string($linkId) && $linkId !== '') {
-        \WHMCS\Database\Capsule::table('mod_edpay_order_links')->updateOrInsert(
-            ['payment_link_id' => $linkId],
-            ['invoice_id' => (int) $invoiceId, 'amount_minor' => (int) round($amount * 100), 'currency' => $currency, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]
+        'reference' => $invoiceId,
+        'description' => $description,
+    ], "{$prefix}-payment-create");
+    $paymentId = $payment['data']['id'] ?? null;
+    if (!$curlError && $httpCode >= 200 && $httpCode < 300 && is_string($paymentId) && $paymentId !== '') {
+        \WHMCS\Database\Capsule::table('mod_edpay_order_payments')->updateOrInsert(
+            ['reference' => $invoiceId],
+            ['payment_id' => $paymentId, 'amount_minor' => (int) round($amount * 100), 'currency' => $currency, 'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')]
         );
-        [$sessionCode, $session, $sessionError] = $request("{$baseUrl}/v1/checkout/sessions", [
-            'payment_link_id' => $linkId,
-        ], "{$prefix}-checkout-session");
-        $token = $session['data']['token'] ?? null;
+        [$sessionCode, $session, $sessionError] = $request("{$baseUrl}/v1/payments/" . rawurlencode($paymentId) . "/public-checkout", [], "{$prefix}-public-checkout");
+        $token = $session['data']['token'] ?? $session['token'] ?? null;
         if (!$sessionError && $sessionCode >= 200 && $sessionCode < 300 && is_string($token) && $token !== '') {
             $checkoutUrl = 'https://pay.edutecka.com/pay?' . http_build_query([
                 'token' => $token, 'pk' => $publicKey,

@@ -67,11 +67,11 @@ $amountCentavos = $data['amount_minor'] ?? null;
 $amount = is_numeric($amountCentavos) ? ((int) $amountCentavos / 100) : 0;
 $feeCentavos = $data['platform_fee_minor'] ?? 0;
 $fee = $feeCentavos / 100;
-$paymentLinkId = $data['payment_link_id'] ?? '';
+$reference = (string) ($data['reference'] ?? '');
 $schema = \WHMCS\Database\Capsule::schema();
-if (!$schema->hasTable('mod_edpay_order_links')) {
-    $schema->create('mod_edpay_order_links', function ($table) {
-        $table->string('payment_link_id', 100)->primary();
+if (!$schema->hasTable('mod_edpay_order_payments')) {
+    $schema->create('mod_edpay_order_payments', function ($table) {
+        $table->string('reference', 100)->primary();
         $table->unsignedInteger('invoice_id')->index();
         $table->unsignedBigInteger('amount_minor');
         $table->string('currency', 3);
@@ -79,8 +79,8 @@ if (!$schema->hasTable('mod_edpay_order_links')) {
         $table->timestamps();
     });
 }
-$mapping = $paymentLinkId !== ''
-    ? \WHMCS\Database\Capsule::table('mod_edpay_order_links')->where('payment_link_id', $paymentLinkId)->first()
+$mapping = $reference !== ''
+    ? \WHMCS\Database\Capsule::table('mod_edpay_order_payments')->where('reference', $reference)->first()
     : null;
 
 // Only process payment succeeded events
@@ -90,12 +90,12 @@ if ($eventType === 'payment.succeeded') {
         || strtoupper((string) ($data['currency'] ?? '')) !== strtoupper($mapping->currency)
         || $paymentId === '') {
         http_response_code(409);
-        die(json_encode(['error' => 'Payment link, status, amount, or currency mismatch']));
+        die(json_encode(['error' => 'Payment reference, status, amount, or currency mismatch']));
     }
 
-    if ($mapping->payment_id !== null) {
+    if ($mapping->payment_id !== null && !hash_equals((string) $mapping->payment_id, (string) $paymentId)) {
         http_response_code(409);
-        die(json_encode(['error' => 'Payment link already processed']));
+        die(json_encode(['error' => 'Payment already processed']));
     }
     $invoiceId = checkCbInvoiceID($mapping->invoice_id, $gatewayParams['name']);
     $invoice = \WHMCS\Database\Capsule::table('tblinvoices')->where('id', $invoiceId)->first();
@@ -109,12 +109,12 @@ if ($eventType === 'payment.succeeded') {
         die(json_encode(['error' => 'Mapped invoice amount or status mismatch']));
     }
     checkCbTransID($paymentId);
-    $claimed = \WHMCS\Database\Capsule::table('mod_edpay_order_links')
-        ->where('payment_link_id', $paymentLinkId)->whereNull('payment_id')
+    $claimed = $mapping->payment_id !== null ? true : \WHMCS\Database\Capsule::table('mod_edpay_order_payments')
+        ->where('reference', $reference)->whereNull('payment_id')
         ->update(['payment_id' => $paymentId, 'updated_at' => date('Y-m-d H:i:s')]);
-    if ($claimed !== 1) {
+    if (!$claimed) {
         http_response_code(409);
-        die(json_encode(['error' => 'Payment link already processed']));
+        die(json_encode(['error' => 'Payment already processed']));
     }
 
     // Apply payment to WHMCS invoice

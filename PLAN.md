@@ -7,7 +7,7 @@
 - [x] Support configuration of the public key, private key, webhook secret, and API base URL.
 - [ ] Connect the Sandbox Mode setting to API environment selection; the setting is currently inactive.
 
-### Phase 2: Payment Link and IPN Callback (In Progress)
+### Phase 2: Payment Parent, Hosted Checkout, and IPN Callback (In Progress)
 - [ ] Generate hosted checkout in `edpay_link()`.
 - [ ] Add a callback listener in `modules/gateways/callback/edpay.php` with invoice ID, transaction ID, and fee validation.
 

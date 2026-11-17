@@ -26,7 +26,7 @@ Copy `modules/gateways/edpay.php` and `modules/gateways/callback/edpay.php` to t
 3. Open the invoice payment page as the test client and select EDPay.
 4. Complete the hosted checkout and confirm the invoice is updated only after a verified callback.
 
-Keep the private key and webhook secret out of source control and browser code. The gateway uses `POST /v1/payment-links` then `POST /v1/checkout/sessions`, with stable invoice-based idempotency keys, and builds the hosted URL from the token at `https://pay.edutecka.com/pay?token=...&pk=...`.
+Keep the private key and webhook secret out of source control and browser code. The gateway creates one parent payment with `POST /v1/payments`, then starts hosted checkout with `POST /v1/payments/{id}/public-checkout`, using stable invoice-based idempotency keys. It builds the hosted URL from the returned opaque token at `https://pay.edutecka.com/pay?token=...&pk=...`.
 
 ## Webhook setup
 
@@ -36,7 +36,7 @@ Register the callback in the EDPay dashboard under **Developers → Webhooks**:
 https://billing.example/modules/gateways/callback/edpay.php
 ```
 
-The gateway stores a durable payment-link-to-invoice mapping with expected amount and currency. It processes only `payment.succeeded` with `status=succeeded` and matching `data.payment_link_id`, amount, and currency; duplicate payment IDs and already-processed links are rejected. This requires an API version that emits `data.payment_link_id`. The callback verifies `Payment-Signature` and rejects invalid signatures or timestamps outside the configurable 300-second default window.
+The gateway stores a durable payment-reference-to-invoice mapping with expected amount and currency. It processes only `payment.succeeded` with `status=succeeded` and matching reference, amount, and currency; duplicate payment IDs are rejected. The callback verifies `Payment-Signature` and rejects invalid signatures or timestamps outside the configurable 300-second default window.
 
 ## Operations and security
 
